@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Inludes all supporting functions for gsp_disaggregator.py
+Includes all supporting functions for gsp_disaggregator.py
 Created on Fri Feb  2 12:09:27 2018
 
 @author: haroonr
@@ -15,6 +15,12 @@ from copy import deepcopy
 from collections import defaultdict
 from scipy.stats import norm
 import math
+import matplotlib.pyplot as plt
+import csv
+from IPython.display import display
+from math import sqrt
+import os
+
 #%%
 def gspclustering_event2(event,delta_p,sigma):
  
@@ -53,8 +59,8 @@ def gspclustering_event2(event,delta_p,sigma):
     Am = np.zeros((newlen,newlen))
     for i in range(newlen):
       for j in range(newlen):
-         #print(i,j)
-         #print('\n')
+          #print(i,j)
+          #print('\n')
          Am[i,j] =  math.exp(-((r[i]-r[j])/sigma)**2);
          #Gaussian kernel weighting function
     Dm = np.zeros((newlen,newlen));
@@ -66,8 +72,8 @@ def gspclustering_event2(event,delta_p,sigma):
   # 0.98 values has been obtained emparically
   cluster = [event[i] for i in range(len(Smstar)) if (Smstar[i] > 0.98)]
   return cluster
-#%%
 
+#%%
 def johntable(clusters,precluster,delta_p,ri):
   import math
   for h in range(0,len(clusters)):  
@@ -81,7 +87,7 @@ def johntable(clusters,precluster,delta_p,ri):
 
 #%%
 def find_new_events(clusters,delta_p,ri):
-  ''' This differs from johntable function in line containing divison statemen'''
+  ''' This differs from johntable function in line containing divison statement'''
   import math
   newevents = []
   for h in range(0,len(clusters)):  
@@ -105,7 +111,7 @@ def feature_matching_module(pairs,DelP,Newcluster,alpha,beta):
       flag = 0
       state_pairs = []
       for j in range(len(pos_cluster)):
-         if j==len(pos_cluster)-1:  # last postive element
+         if j==len(pos_cluster)-1:  # last positive element
              flag = 1 
              start_pos = pos_cluster[j]
          if flag:
@@ -117,11 +123,11 @@ def feature_matching_module(pairs,DelP,Newcluster,alpha,beta):
                  continue
              neg_set = [h for h in neg_cluster if (h > start_pos and h< next_pos)]
          if len(neg_set)==1:
-             #pair the postive and neg edges
+             #pair the positive and neg edges
              pair= (start_pos,neg_set[0])
              state_pairs.append(pair)
          elif len(neg_set)==0: # no negative edge found
-             #print("No negative edge found for postive edge: {}".format(start_pos))
+             #print("No negative edge found for positive edge: {}".format(start_pos))
              continue
          else:
              phi_m = [DelP[h]+DelP[start_pos] for h in neg_set]
@@ -129,7 +135,7 @@ def feature_matching_module(pairs,DelP,Newcluster,alpha,beta):
              newlen= len(neg_set)
              Am = np.zeros((newlen,newlen))
              At = np.zeros((newlen,newlen))
-             sigma = 1 # cofirmed with Bochao
+             sigma = 1 # confirmed with Bochao
              for k in range(newlen):
                  for p in range(newlen):
                      Am[k,p] = np.exp(-((phi_m[k]-phi_m[p])/sigma)**2);
@@ -161,10 +167,14 @@ def feature_matching_module(pairs,DelP,Newcluster,alpha,beta):
              state_pairs.append(pair)
       appliance_pairs[i] = state_pairs
     return appliance_pairs
+
 #%%
 def generate_appliance_powerseries(appliance_pairs,DelP):
     ''' generates full power series of appliances'''
-    appliance_signature = OrderedDict()
+    print ("3 of 6> generates full power series of appliances")
+    appliance_signatures = OrderedDict()
+    power_series = OrderedDict()
+    ctlf = OrderedDict()
     for i in range(len(appliance_pairs)):
         events = appliance_pairs[i]
         timeseq= []
@@ -186,24 +196,129 @@ def generate_appliance_powerseries(appliance_pairs,DelP):
             powerseq.append(powerval)
         powerseq =  [j for sub in powerseq for j in sub]
         timeseq =  [j for sub in timeseq for j in sub]
-        appliance_signature[i] = pd.DataFrame({'timestamp':timeseq,'power':powerseq})
-    return appliance_signature
+        power_series[i] = pd.DataFrame({'timestamp':timeseq,'power':powerseq})
+        appliance_signatures[i] = pd.DataFrame(powerseq)
+
+    return power_series, appliance_signatures
+
+#%%
+def label_appliances(appliance_signatures, signature_database, threshold):
+    print ("4 of 6> checking appliance power signatures matches")
+    labeled_appliances = OrderedDict()
+    dfw = pd.concat(appliance_signatures, axis = 1, ignore_index=True)
+    dfw.drop(dfw.index[1], axis=1)
+    #dfw.to_csv("signature_database.csv")
+
+    dfr = pd.read_csv(signature_database, index_col=0)
+    rowr, columnsr = dfr.shape
+    roww, columnsw = dfw.shape
+    print("        > found "+ str(columnsw) + " appliances. Verifying signature matching")
+    for i in range(columnsw):
+        for j in range(columnsr):
+            last_idxr = dfr.iloc[:,j].last_valid_index()
+            last_idxw = dfw.iloc[:,i].last_valid_index()
+            D = FastDTW(dfw.iloc[:last_idxw,i].values, dfr.iloc[:last_idxr,j].values, 10)
+            if D < threshold:
+                print("          > found match " + str(i+1) + " with " + dfr.iloc[:0,j].name)
+                labeled_appliances[i] = dfr.iloc[:0,j].name
+
+    return labeled_appliances
+
+#%%
+def DTW(s1, s2):
+    DTW={}
     
+    for i in range(len(s1)):
+        DTW[(i, -1)] = float('inf')
+    for i in range(len(s2)):
+        DTW[(-1, i)] = float('inf')
+    DTW[(-1, -1)] = 0
+    
+    for i in range(len(s1)):
+        for j in range(len(s2)):
+            dist= (s1[i]-s2[j])**2
+            DTW[(i, j)] = dist + min(DTW[(i-1, j)],DTW[(i, j-1)], DTW[(i-1, j-1)])
+
+    return sqrt(DTW[len(s1)-1, len(s2)-1])
+
+#%%
+def FastDTW(s1, s2, w):
+    DTW={}
+    
+    w = max(w, abs(len(s1)-len(s2)))
+    
+    for i in range(-1,len(s1)):
+        for j in range(-1,len(s2)):
+            DTW[(i, j)] = float('inf')
+    DTW[(-1, -1)] = 0
+    
+    for i in range(len(s1)):
+        for j in range(max(0, i-w), min(len(s2), i+w)):
+            dist= (s1[i]-s2[j])**2
+            DTW[(i, j)] = dist + min(DTW[(i-1, j)],DTW[(i, j-1)], DTW[(i-1, j-1)])
+
+    return sqrt(DTW[len(s1)-1, len(s2)-1])
+
+#%%
+def write_csv_df(path, filename, df):
+    # Give the filename you wish to save the file to
+    pathfile = os.path.normpath(os.path.join(path,filename))
+    
+    # Use this function to search for any files which match your filename
+    files_present = os.path.isfile(pathfile)
+    # if no matching files, write to csv, if there are matching files, print statement
+    if not files_present:
+        df.to_csv(pathfile)
+    else:
+        overwrite = raw_input("WARNING: " + pathfile + " already exists! Overwrite <y/n>? \n ")
+        if overwrite == 'y':
+            df.to_csv(pathfile)
+        elif overwrite == 'n':
+            return
+        else:
+            print "Not a valid input. Data is NOT saved!\n"
+    return
+
+#%%
+def calculate_energy_pct(dfd, dfc):
+    # Plot total energy consumption of each appliance found
+
+    fig = plt.figure()
+    ax1 = fig.add_axes([0, .3, .5, .5], aspect=1)
+    ax2 = fig.add_axes([.5, .3, .5, .5], aspect=1)
+    fig.suptitle('Total energy consumption', fontsize = 14)
+
+    cons1 = dfd[dfd.columns.values].sum().sort_values(ascending=False)
+    cons2 = dfc[dfc.columns.values].sum().sort_values(ascending=False)
+
+    ax1.pie(cons1.values, autopct='%1.1f%%', startangle=90)
+    ax2.pie(cons2.values, autopct='%1.1f%%', startangle=90)
+    first_legend = ax1.legend(dfd.columns, loc = 'lower center', bbox_to_anchor=(.5, -.4), fontsize = 8)
+    second_legend = ax2.legend(dfc.columns, loc = 'lower center', bbox_to_anchor=(.5, -.4), fontsize = 8)
+    ax1.set_title('Ground truth')
+    ax2.set_title('Disaggregated')
+    ax1.axis('equal')
+    ax2.axis('equal')
+    plt.tight_layout()
+    plt.show()
+
 #%%
 def interpolate_values(A):
     ''' fills values between pairs of events'''
     if type(A) ==list :
         A= np.array(A)
-    ok = -np.isnan(A)
+    ok = ~np.isnan(A)
     xp = ok.nonzero()[0]
-    fp = A[-np.isnan(A)]
+    fp = A[~np.isnan(A)]
     x  = np.isnan(A).nonzero()[0]
     A[np.isnan(A)] = np.interp(x, xp, fp)
     A = [round(i) for i in A]
     return A
+
 #%%
-def create_appliance_timeseries_signature(power_series,main_ind):
-    '''This converts ordinary number indexexed power series into time indexed power series'''
+def create_appliance_timeseries(power_series,main_ind):
+    '''This converts ordinary number indexed power series into time indexed power series'''
+    print ("5 of 6> creating appliance power timeseries")
     result = OrderedDict()
     for i in range(len(power_series)):
         temp = power_series[i]
@@ -211,6 +326,7 @@ def create_appliance_timeseries_signature(power_series,main_ind):
             continue
         temp.index = temp.timestamp
         dummy = pd.Series(0,main_ind)
+        dummy = dummy.loc[~dummy.index.duplicated(keep='first')]
         dummy[main_ind[temp.index.values]] = temp.power.values
         result[i] = dummy
     return(result)
@@ -238,13 +354,14 @@ def refined_clustering_block(event,delta_p,sigma,ri):
     if len(event) > 0:
       Finalcluster.append(event)
     return Finalcluster
+
 #%%
 def find_closest_pair(cluster_means,cluster_group): 
     ''' this identifies closest clusters wrt to mean and then merges those clusters into one'''
     distances = []   
     for i in range(len(cluster_means)-1):
         for j in range((i+1),len(cluster_means)):
-           #print i,j
+            #print i,j
            distance = abs(cluster_means[i] - cluster_means[j])  
            distances.append((i,j,distance))
     merge_pair = min(distances, key = lambda h:h[2])
@@ -260,10 +377,11 @@ def find_closest_pair(cluster_means,cluster_group):
     for k,v in cluster_dict.items():
         tempcluster.append(v)
     return tempcluster
+
 #%%
 def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit):
-        
-    #% Here i count number of members of each cluster, their mean and standard deviation and store such stats in Table_1. Next, I sort 'Finalcluster' according to cluster means in decreasing order. 
+    print ("2 of 6> pair clusters appliance wise")
+    #% Here I count number of members of each cluster, their mean and standard deviation and store such stats in Table_1. Next, I sort 'Finalcluster' according to cluster means in decreasing order.
     Table_1 =  np.zeros((len(Finalcluster),4))
     for i in range(len(Finalcluster)):
       Table_1[i,0] = len(Finalcluster[i])
@@ -284,7 +402,7 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
     DelP = [round(data_vec[i+1]-data_vec[i],2) for i in range(0,len(data_vec)-1)]
     Newcluster_1 = []
     Newtable = []
-    #intancelimit = 20
+    #instancelimit = 20
     for i in range(0,len(FinalTable)):
       if (FinalTable[i][0] >= instancelimit):
         Newcluster_1.append(sorted_cluster[i])
@@ -301,12 +419,12 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
           if sum(asv) == 1:
             johnIndex = count.index(max(count))
           elif DelP[sorted_cluster[i][j]] > 0:
-            #print("case1",i,j)
+              #print("case1",i,j)
             tablemeans = [r[1] for r in Newtable]
             tempelem = [r for r in tablemeans if r < DelP[sorted_cluster[i][j]]][0]
             johnIndex = tablemeans.index(tempelem)
           else:
-            #print("case else",i,j)
+              #print("case else",i,j)
             tablemeans = [r[1] for r in Newtable]
             tempelem = [r for r in tablemeans if r > DelP[sorted_cluster[i][j]]].pop()
             johnIndex = tablemeans.index(tempelem)
@@ -320,7 +438,7 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
       Table_2[i,3] =  abs(Table_2[i,2]/ Table_2[i,1])
     Newtable = Table_2
     #%
-    # Ideally, number of positive clusters should be equal to negative clusters. if one type is more than the other then we merge extra clusters until we get equal number of postive and negative clusters
+    # Ideally, number of positive clusters should be equal to negative clusters. if one type is more than the other then we merge extra clusters until we get equal number of positive and negative clusters
     pos_clusters = neg_clusters = 0
     for i in range(Newtable.shape[0]):
         if Newtable[i][1] > 0:
@@ -328,7 +446,7 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
         else:
             neg_clusters += 1
     Newcluster_cp = deepcopy(Newcluster)
-    # merge until we get equal number of postive and negative clusters
+    # merge until we get equal number of positive and negative clusters
     while pos_clusters != neg_clusters:
         index_cluster = Newcluster_cp
         power_cluster = []
@@ -339,33 +457,33 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
             power_cluster.append(list_member)
             
         clustermeans = [np.mean(i) for i in power_cluster]
-        postive_cluster_chunk= []
+        positive_cluster_chunk= []
         negative_cluster_chunk = []
-        postive_cluster_means= []
+        positive_cluster_means= []
         negative_cluster_means = []
         pos_clusters = neg_clusters = 0
         for j in range(len(clustermeans)):
            if clustermeans[j] > 0:
                 pos_clusters += 1
-                postive_cluster_chunk.append(index_cluster[j])
-                postive_cluster_means.append(clustermeans[j])    
+                positive_cluster_chunk.append(index_cluster[j])
+                positive_cluster_means.append(clustermeans[j])
            else:
                 neg_clusters += 1
                 negative_cluster_chunk.append(index_cluster[j])
                 negative_cluster_means.append(clustermeans[j])
                 
         if pos_clusters > neg_clusters:
-             #print ('call positive')
-             postive_cluster_chunk = find_closest_pair(postive_cluster_means, postive_cluster_chunk)
+            #print ('call positive')
+             positive_cluster_chunk = find_closest_pair(positive_cluster_means, positive_cluster_chunk)
         elif neg_clusters > pos_clusters:
-             #print ('call negative')
+            #print ('call negative')
              negative_cluster_chunk = find_closest_pair(negative_cluster_means, negative_cluster_chunk)
         else:
             pass
-        Newcluster_cp = postive_cluster_chunk + negative_cluster_chunk        
+        Newcluster_cp = positive_cluster_chunk + negative_cluster_chunk
     
     #%
-    # Use Newcluster_cp for pairing. Basically here we combine one postive cluster with one negative cluster, which corresponds to ON and OFF instances of the same appliance
+    # Use Newcluster_cp for pairing. Basically here we combine one positive cluster with one negative cluster, which corresponds to ON and OFF instances of the same appliance
     clus_means = []
     for i in Newcluster_cp:
         list_member = []
@@ -374,13 +492,13 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
         clus_means.append(np.mean(list_member))    
     pairs = []
     for i in range(len(clus_means)):
-      if clus_means[i] > 0: # postive edge
+      if clus_means[i] > 0: # positive edge
         neg_edges = [ (abs(clus_means[i] + clus_means[j]),j) for j in range(i+1,len(clus_means)) if clus_means[j] < 0] # find all neg edges and their location in tuple form
         edge_mag = [j[0] for j in neg_edges] # 0 corresponds to list magnitude in the tuple
         match_loc = neg_edges[edge_mag.index(min(edge_mag))][1]
         pairs.append((i,match_loc))
     #%
-    # while looking at pairs, we find that there are cases where more than one positive edge has piaired with more than one negative edge. To solve this issue, we fill process again this pairing process. step 1: save this in default dic by negative edge wise step 2: see with which positive edge matches the negative edge matches the most
+    # while looking at pairs, we find that there are cases where more than one positive edge has paired with more than one negative edge. To solve this issue, we fill process again this pairing process. step 1: save this in default dic by negative edge wise step 2: see with which positive edge matches the negative edge matches the most
     #pairs_temp = deepcopy(pairs)
     dic_def = defaultdict(list)
     for value,key in pairs:
@@ -405,7 +523,7 @@ def find_closest_pairs(start_cluster,end_cluster,cluster_means,required_reductio
     distances = []   
     for i in range(start_cluster, end_cluster):
         for j in range((i+1),end_cluster+1):
-           print i,j
+            #print i,j
            distance = abs(cluster_means[i] - cluster_means[j])  
            distances.append((i,j,distance))
     distances  = pd.DataFrame.from_records(distances)
