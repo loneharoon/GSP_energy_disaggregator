@@ -57,7 +57,7 @@ data_vec =  main_val
 signature_database = "signature_database_labelled.csv" #the signatures were extracted of power analysis from April 28th to 30th
 threshold = 2000 # threshold of DTW algorithm used for appliance power signature matching
 
-delta_p = [round(data_vec[i+1] - data_vec[i], 2) for i in range(0, len(data_vec) - 1)]
+delta_p = [(data_vec[i+1] - data_vec[i]).round(2) for i in range(0, len(data_vec) - 1)]
 event =  [i for i in range(0, len(delta_p)) if (delta_p[i] > T_Positive or delta_p[i] < T_Negative) ]
 
 # initial and refined clustering block of Figure 1 in the paper

@@ -188,7 +188,7 @@ def generate_appliance_powerseries(appliance_pairs,DelP):
             temp= np.repeat(np.nan,duration-1).tolist()
             instance.append(temp)
             instance.append([abs(DelP[end])])
-            final = [j for sub in instance for j in sub]
+            final = np.array([j for sub in instance for j in sub], dtype=float).flatten()
             timeval = range(start,end+1,1)
             #print (event)
             powerval = interpolate_values(final) if sum(np.isnan(final)) else final
@@ -276,7 +276,7 @@ def write_csv_df(path, filename, df):
         elif overwrite == 'n':
             return
         else:
-            print "Not a valid input. Data is NOT saved!\n"
+            print("Not a valid input. Data is NOT saved!\n")
     return
 
 #%%
@@ -399,7 +399,7 @@ def pair_clusters_appliance_wise(Finalcluster, data_vec, delta_p, instancelimit)
     #%
     # Here I reduce number of clusters. I keep clusters with more than or equal 'instancelimit' members as such and in next cell I merge cluster with less than 5 members to clusters with more than 'instancelimit' members 
     # DelP seems redundant but lets move on
-    DelP = [round(data_vec[i+1]-data_vec[i],2) for i in range(0,len(data_vec)-1)]
+    DelP = [(data_vec[i+1]-data_vec[i]).round(2) for i in range(0,len(data_vec)-1)]
     Newcluster_1 = []
     Newtable = []
     #instancelimit = 20
